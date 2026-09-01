@@ -1,45 +1,47 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
+import os
 
-st.set_page_config(page_title="AI ผู้ช่วยพนักงานตรวจแรงงาน", layout="centered")
+# ตั้งค่าหน้าเว็บ
+st.set_page_config(page_title="AI Assistant", page_icon="🤖")
+st.title("🤖 ผู้ช่วย AI พร้อมระบบอัปโหลดไฟล์")
 
-st.title("⚖️ AI ผู้ช่วยพนักงานตรวจแรงงาน")
-st.subheader("อัปโหลดแบบฟอร์ม คร.๗ เพื่อดึงข้อมูลอัตโนมัติ")
+# ตั้งค่า API Key (ดึงจาก Streamlit Secrets หรือใส่ตรงนี้ชั่วคราวได้)
+# แนะนำให้ตั้งค่า GOOGLE_API_KEY ในหน้าตั้งค่าของ Streamlit
+api_key = st.secrets.get("GOOGLE_API_KEY", "")
 
-api_key = st.text_input("ใส่ Google Gemini API Key ของคุณ:", type="password")
-
-# อัปเดตให้รองรับไฟล์ PDF
-uploaded_file = st.file_uploader("อัปโหลดไฟล์ คร.๗ (JPG, PNG, PDF)", type=["jpg", "jpeg", "png", "pdf"])
-
-if uploaded_file is not None and api_key:
-    # เช็คว่าเป็น PDF หรือรูปภาพ
-    if uploaded_file.name.lower().endswith(".pdf"):
-        st.info("📄 อัปโหลดไฟล์ PDF สำเร็จ! (ระบบจะส่งให้ AI อ่านโดยตรง)")
-        # เตรียมไฟล์ PDF ให้ Gemini
-        file_to_send = {"mime_type": "application/pdf", "data": uploaded_file.getvalue()}
-    else:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="ไฟล์ที่อัปโหลด", use_container_width=True)
-        # เตรียมไฟล์รูปภาพให้ Gemini
-        file_to_send = image
+if not api_key:
+    st.error("⚠️ ไม่พบ API Key กรุณาตั้งค่า GOOGLE_API_KEY ใน Streamlit Secrets")
+else:
+    # เริ่มต้นการเชื่อมต่อกับ Google Gemini
+    genai.configure(api_key=api_key)
     
-    if st.button("วิเคราะห์ข้อมูล"):
-        with st.spinner("AI กำลังอ่านเอกสารและวิเคราะห์รูปคดี..."):
-            try:
-                genai.configure(api_key=api_key)
-                # ใช้รุ่น flash ที่อ่าน PDF ได้
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = """
-                นี่คือเอกสารคำร้อง คร.๗ ให้คุณทำหน้าที่เป็นผู้ช่วยพนักงานตรวจแรงงาน 
-                ช่วยดึงข้อมูลต่อไปนี้ออกมาให้ชัดเจน:
-                1. ชื่อลูกจ้าง (ผู้ร้อง)
-                2. ชื่อนายจ้าง (ผู้ถูกร้อง)
-                3. ประเด็นที่ร้องเรียน (เช่น ค้างจ่ายค่าจ้าง, เลิกจ้างไม่เป็นธรรม)
-                4. ข้อเสนอแนะเบื้องต้นตามกฎหมายแรงงานสำหรับกรณีนี้
-                """
-                response = model.generate_content([prompt, file_to_send])
-                st.success("วิเคราะห์เสร็จสิ้น!")
-                st.write(response.text)
-            except Exception as e:
-                st.error(f"เกิดข้อผิดพลาด: {e}")
+    # ใช้โมเดลเวอร์ชันที่อัปเดตล่าสุดเพื่อแก้ปัญหา 404
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+    # สร้างปุ่มอัปโหลดไฟล์
+    uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์ข้อความ (TXT) เพื่อให้ AI วิเคราะห์", type=['txt'])
+
+    if uploaded_file is not None:
+        st.success("✅ อัปโหลดไฟล์สำเร็จ!")
+        
+        # อ่านเนื้อหาจากไฟล์
+        file_content = uploaded_file.getvalue().decode("utf-8")
+        with st.expander("ดูเนื้อหาในไฟล์"):
+            st.text(file_content)
+        
+        # ช่องรับคำสั่งจากผู้ใช้
+        user_prompt = st.text_input("💬 พิมพ์คำสั่งให้ AI ทำอะไรกับไฟล์นี้ (เช่น สรุปเนื้อหา, หาจุดสำคัญ):")
+        
+        if st.button("🚀 ส่งให้ AI ประมวลผล") and user_prompt:
+            with st.spinner("AI กำลังคิด..."):
+                try:
+                    # รวมคำสั่งและเนื้อหาไฟล์เข้าด้วยกัน
+                    full_prompt = f"{user_prompt}\n\nเนื้อหาข้อมูล:\n{file_content}"
+                    response = model.generate_content(full_prompt)
+                    
+                    # แสดงผลลัพธ์
+                    st.markdown("### 💡 ผลลัพธ์จาก AI:")
+                    st.write(response.text)
+                except Exception as e:
+                    st.error(f"เกิดข้อผิดพลาด: {e}")
