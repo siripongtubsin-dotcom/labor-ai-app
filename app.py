@@ -3,47 +3,39 @@ import google.generativeai as genai
 import tempfile
 import os
 
-# ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="AI Assistant", page_icon="🤖")
-st.title("🤖 ผู้ช่วย AI วิเคราะห์ไฟล์ PDF")
+# 1. ใส่ API Key ของคุณตรงนี้ (เอาอันที่สร้างใหม่มาใส่นะครับ)
+genai.configure(api_key="ใส่_API_KEY_ของคุณที่นี่")
 
-# ดึง API Key
-api_key = st.secrets.get("GOOGLE_API_KEY", "")
+st.title("ระบบสรุปเอกสารอัตโนมัติ 📄")
+st.write("เพียงอัปโหลดไฟล์ ระบบจะสรุปเนื้อหาให้ทันที")
 
-if not api_key:
-    st.error("⚠️ ไม่พบ API Key กรุณาตั้งค่า GOOGLE_API_KEY ใน Streamlit Secrets")
-else:
-    # ตั้งค่า Gemini
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+# 2. สร้างช่องให้อัปโหลดไฟล์ (รองรับ PDF และ TXT)
+uploaded_file = st.file_uploader("ลากไฟล์มาวาง หรือกดเพื่อเลือกไฟล์", type=['pdf', 'txt'])
 
-    # ปุ่มอัปโหลดไฟล์
-    uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์ PDF เพื่อให้ AI วิเคราะห์", type=['pdf'])
-
-    if uploaded_file is not None:
-        st.success("✅ อัปโหลดไฟล์สำเร็จ!")
+if uploaded_file is not None:
+    with st.spinner("🤖 ระบบกำลังอ่านและสรุปข้อมูล โปรดรอสักครู่..."):
+        # 3. บันทึกไฟล์ที่อัปโหลดลงเครื่องชั่วคราว เพื่อส่งให้ Gemini
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
         
-        # สร้างไฟล์ชั่วคราวเพื่อให้ Gemini อ่านได้โดยตรง
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            temp_path = tmp_file.name
-
-        user_prompt = st.text_input("💬 พิมพ์คำสั่งให้ AI ทำอะไรกับไฟล์นี้ (เช่น สรุปเนื้อหาทั้งหมด):")
-        
-        if st.button("🚀 ส่งให้ AI ประมวลผล") and user_prompt:
-            with st.spinner("AI กำลังอ่านและประมวลผล..."):
-                try:
-                    # อัปโหลดไฟล์เข้าสู่ระบบของ Gemini
-                    gemini_file = genai.upload_file(path=temp_path, mime_type="application/pdf")
-                    
-                    # สั่งให้ AI ทำงานโดยส่งคำสั่งพร้อมกับไฟล์
-                    response = model.generate_content([user_prompt, gemini_file])
-                    
-                    st.markdown("### 💡 ผลลัพธ์จาก AI:")
-                    st.write(response.text)
-                except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาด: {e}")
-                finally:
-                    # ลบไฟล์ชั่วคราวทิ้งเมื่อเสร็จสิ้น
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
+        try:
+            # 4. อัปโหลดไฟล์ไปที่ Gemini และตั้งค่าคำสั่ง (Prompt) ที่ฝังไว้
+            gemini_file = genai.upload_file(tmp_path)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # **นี่คือคำสั่งที่เราซ่อนไว้ ผู้ใช้ไม่ต้องพิมพ์เอง**
+            hidden_prompt = "สรุปใจความสำคัญของเอกสารนี้ให้เข้าใจง่าย สั้นกระชับ และจัดรูปแบบเป็นหัวข้อให้อ่านง่ายที่สุด"
+            
+            response = model.generate_content([gemini_file, hidden_prompt])
+            
+            # 5. แสดงผลลัพธ์
+            st.success("✅ สรุปเสร็จสิ้น!")
+            st.write("### 📝 สรุปเนื้อหา:")
+            st.write(response.text)
+            
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาด: {e}")
+        finally:
+            # ลบไฟล์ชั่วคราวทิ้ง
+            os.remove(tmp_path)
