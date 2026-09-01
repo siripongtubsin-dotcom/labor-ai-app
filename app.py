@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
-import PyPDF2
+import tempfile
+import os
 
 # ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="AI Assistant", page_icon="🤖")
@@ -16,40 +17,33 @@ else:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
-    # ปุ่มอัปโหลดไฟล์ เปลี่ยนเป็นรองรับ PDF
+    # ปุ่มอัปโหลดไฟล์
     uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์ PDF เพื่อให้ AI วิเคราะห์", type=['pdf'])
 
     if uploaded_file is not None:
         st.success("✅ อัปโหลดไฟล์สำเร็จ!")
         
-        # แกะข้อความจากไฟล์ PDF
-        file_content = ""
-        try:
-            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for page in pdf_reader.pages:
-                text = page.extract_text()
-                if text:
-                    file_content += text + "\n"
-            
-            with st.expander("ดูเนื้อหาที่แกะได้จาก PDF"):
-                st.text(file_content[:1000] + "...\n(แสดงเพียงส่วนแรก)")
-                
-        except Exception as e:
-            st.error(f"ไม่สามารถอ่านไฟล์ PDF ได้: {e}")
+        # สร้างไฟล์ชั่วคราวเพื่อให้ Gemini อ่านได้โดยตรง
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            temp_path = tmp_file.name
+
+        user_prompt = st.text_input("💬 พิมพ์คำสั่งให้ AI ทำอะไรกับไฟล์นี้ (เช่น สรุปเนื้อหาทั้งหมด):")
         
-        # ถ้ามีเนื้อหา ค่อยให้ AI ทำงาน
-        if file_content.strip():
-            user_prompt = st.text_input("💬 พิมพ์คำสั่งให้ AI ทำอะไรกับไฟล์นี้ (เช่น สรุปเนื้อหา):")
-            
-            if st.button("🚀 ส่งให้ AI ประมวลผล") and user_prompt:
-                with st.spinner("AI กำลังคิด..."):
-                    try:
-                        full_prompt = f"{user_prompt}\n\nเนื้อหาข้อมูล:\n{file_content}"
-                        response = model.generate_content(full_prompt)
-                        
-                        st.markdown("### 💡 ผลลัพธ์จาก AI:")
-                        st.write(response.text)
-                    except Exception as e:
-                        st.error(f"เกิดข้อผิดพลาด: {e}")
-        else:
-            st.warning("⚠️ ไม่พบข้อความในไฟล์ PDF นี้ (อาจเป็นไฟล์ที่สแกนเป็นรูปภาพ)")
+        if st.button("🚀 ส่งให้ AI ประมวลผล") and user_prompt:
+            with st.spinner("AI กำลังอ่านและประมวลผล..."):
+                try:
+                    # อัปโหลดไฟล์เข้าสู่ระบบของ Gemini
+                    gemini_file = genai.upload_file(path=temp_path, mime_type="application/pdf")
+                    
+                    # สั่งให้ AI ทำงานโดยส่งคำสั่งพร้อมกับไฟล์
+                    response = model.generate_content([user_prompt, gemini_file])
+                    
+                    st.markdown("### 💡 ผลลัพธ์จาก AI:")
+                    st.write(response.text)
+                except Exception as e:
+                    st.error(f"เกิดข้อผิดพลาด: {e}")
+                finally:
+                    # ลบไฟล์ชั่วคราวทิ้งเมื่อเสร็จสิ้น
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
